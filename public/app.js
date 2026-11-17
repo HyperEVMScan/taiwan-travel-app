@@ -92,9 +92,82 @@
   function fitMap(){if(!state.map)return;const ps=placeList().filter(p=>p.kind!=='candidate'||state.showCandidates);if(!ps.length){destinationCenter();return;}if(state.provider==='google'){if(ps.length===1){state.map.setCenter({lat:ps[0].lat,lng:ps[0].lng});state.map.setZoom(13);}else{const b=new google.maps.LatLngBounds();ps.forEach(p=>b.extend({lat:p.lat,lng:p.lng}));state.map.fitBounds(b,75);}}else{state.map.invalidateSize();if(ps.length===1)state.map.setView([ps[0].lat,ps[0].lng],13);else state.map.fitBounds(ps.map(p=>[p.lat,p.lng]),{padding:[62,62],maxZoom:13,animate:false});}}
   async function destinationCenter(){if(!state.trip?.destination||state.destinationLookedUp===state.trip.id||placeList().length)return;state.destinationLookedUp=state.trip.id;try{const r=await api('/api/search?q='+encodeURIComponent(state.trip.destination));if(state.trip&&!placeList().length&&r.results?.[0]){const p=r.results[0];if(state.provider==='google'){state.map.setCenter({lat:p.lat,lng:p.lng});state.map.setZoom(10);}else state.map.setView([p.lat,p.lng],10);}}catch{}}
   function focusPlace(id){const p=state.trip?.places.find(x=>x.id===id);if(!p)return;if(state.day!==-1&&state.day!==p.day)state.day=p.day;state.selectedId=id;render(false);if(state.provider==='google'){state.map.panTo({lat:p.lat,lng:p.lng});state.map.setZoom(Math.max(state.map.getZoom()||12,13));state.markers.get(id)?.info?.open({map:state.map,anchor:state.markers.get(id).marker});}else{state.map.setView([p.lat,p.lng],Math.max(state.map.getZoom(),13));state.markers.get(id)?.marker.openPopup();}if(window.innerWidth<=850)mobileView('map');}
+  // Raster OSM tiles already contain Chinese characters. A multilingual vector
+  // basemap is required to change the actual map labels, not just our markers.
+  // The primary style has Korean labels built in; an OpenFreeMap vector style
+  // with Korean/English fallback is used if the primary server is unavailable.
+  // The original OSM raster stays available until a replacement finishes loading.
+  const KOREAN_MAP_STYLES = [
+    {url:'https://styles.maptoolkit.org/summer-ko.json',provider:'Maptoolkit',attribution:'<a href="https://www.maptoolkit.com/copyright/" target="_blank" rel="noopener noreferrer">&copy; Maptoolkit</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">&copy; OpenStreetMap</a>'},
+    {url:'https://tiles.openfreemap.org/styles/liberty',provider:'OpenFreeMap',attribution:'<a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">&copy; OpenFreeMap</a> <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">&copy; OpenStreetMap</a>'}
+  ];
+  function prioritizeKoreanVectorLabels(glMap){
+    if(!glMap?.getStyle || !glMap.setLayoutProperty)return;
+    for(const layer of glMap.getStyle().layers||[]){
+      if(layer.type!=='symbol' || !layer.layout?.['text-field'])continue;
+      // Preserve numeric house numbers, road shield codes and exit numbers.
+      if(/(?:house.?number|address|road.?shield|route.?shield|exit.?number|junction|ref.?label)/i.test(layer.id))continue;
+      try{
+        glMap.setLayoutProperty(layer.id,'text-field',[
+          'coalesce',
+          ['get','name_ko'],['get','name:ko'],
+          ['get','name_en'],['get','name:en'],
+          ['get','name_int'],['get','name:latin'],
+          ['get','name']
+        ]);
+      }catch(err){console.warn('일부 지도 레이블의 언어를 변경하지 못했습니다.',layer.id,err);}
+    }
+  }
+  function installKoreanBasemap(raster){
+    const source=$('#mapSource');
+    const brand=$('#maptoolkitLogo');
+    if(!window.maplibregl || !window.L?.maplibreGL){
+      source.textContent='지도: 기본 지도 (한국어 지도 라이브러리를 불러오지 못함)';
+      return;
+    }
+    const tryStyle=index=>{
+      const style=KOREAN_MAP_STYLES[index];
+      if(!style){source.textContent='지도: 기본 지도 (한국어 지도 서비스 연결 불가)';return;}
+      let layer,glMap,settled=false,timer;
+      const fail=error=>{
+        if(settled)return;
+        settled=true;
+        clearTimeout(timer);
+        console.warn('한국어 지도 서비스 연결 실패:',style.provider,error);
+        try{if(layer&&state.map.hasLayer(layer))state.map.removeLayer(layer);}catch{}
+        tryStyle(index+1);
+      };
+      try{
+        layer=L.maplibreGL({style:style.url,attribution:style.attribution,maxZoom:19}).addTo(state.map);
+        glMap=layer.getMaplibreMap();
+        if(!glMap || typeof glMap.once!=='function')throw new Error('지도 렌더러 초기화 실패');
+        timer=setTimeout(()=>fail(new Error('지도 스타일 로딩 시간 초과')),16000);
+        glMap.once('load',()=>{
+          if(settled)return;
+          try{
+            prioritizeKoreanVectorLabels(glMap);
+            // Keep the newly loaded vector map; remove Chinese-labeled raster.
+            if(state.map.hasLayer(raster))state.map.removeLayer(raster);
+            settled=true;
+            clearTimeout(timer);
+            state.koreanLayer=layer;
+            source.textContent='지도: 한국어 우선 · 일부 미번역 지명은 현지어';
+            brand.hidden=style.provider!=='Maptoolkit';
+            console.info('한국어 지도 준비 완료:',style.provider);
+          }catch(err){fail(err);}
+        });
+        glMap.on('error',event=>{
+          // On initial load, malformed/missing styles should trigger fallback.
+          // A transient tile error after a successful load should not reset the map.
+          if(!settled)fail(event?.error||new Error('지도 데이터를 가져오지 못함'));
+        });
+      }catch(err){fail(err);}
+    };
+    tryStyle(0);
+  }
   async function initMap(){state.googleKey=(state.config.googleMapsKey||localStorage.getItem('moatrip_google_key')||'').trim();if(state.googleKey){try{await loadGoogle(state.googleKey);}catch(e){console.warn('Google 지도 초기화 실패, 기본 지도로 대체합니다.',e);toast('구글지도를 불러오지 못해 기본 지도를 표시합니다.',true);}}
     if(window.google?.maps&&state.googleKey){state.provider='google';state.map=new google.maps.Map($('#map'),{center:{lat:25.045,lng:121.55},zoom:10,streetViewControl:false,mapTypeControl:false,fullscreenControl:false,gestureHandling:'greedy'});state.map.addListener('click',e=>{if(state.mapPick)onMapPick(e.latLng.lat(),e.latLng.lng());});$('#mapSource').textContent='지도: Google Maps';}
-    else if(window.L){state.provider='leaflet';state.map=L.map('map',{zoomControl:false}).setView([25.045,121.55],10);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',maxZoom:19}).addTo(state.map);state.map.on('click',e=>{if(state.mapPick)onMapPick(e.latlng.lat,e.latlng.lng);});$('#mapSource').textContent='지도: OpenStreetMap';}
+    else if(window.L){state.provider='leaflet';state.map=L.map('map',{zoomControl:false}).setView([25.045,121.55],10);const raster=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',maxZoom:19}).addTo(state.map);state.map.on('click',e=>{if(state.mapPick)onMapPick(e.latlng.lat,e.latlng.lng);});installKoreanBasemap(raster);}
     else{toast('지도 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.',true);return;}
     renderMap(true);
   }
@@ -127,7 +200,7 @@
   function joinTripModal(){openModal(`<div class="modal-label">JOIN A TRIP</div><h2 id="dialogTitle">공유받은 여행 열기</h2><p class="dialog-sub">친구가 보내준 모아트립 주소를 붙여넣어주세요.</p><form id="joinTripForm"><div class="form-field"><label for="joinLink">여행 공유 링크</label><input id="joinLink" type="text" required placeholder="https://.../?trip=..." /></div><div class="modal-actions"><button class="secondary-btn" type="button" id="backTrips">뒤로</button><button type="submit" class="primary-btn">여행 열기</button></div></form>`);$('#backTrips').onclick=tripManagerModal;$('#joinTripForm').onsubmit=async e=>{e.preventDefault();let id;try{id=new URL($('#joinLink').value,location.origin).searchParams.get('trip');}catch{}if(!id||!/^[a-f0-9]{32}$/.test(id))return toast('올바른 여행 공유 링크가 아닙니다.',true);if(await loadTrip(id))closeModal();};}
   function shareModal(){const url=`${location.origin}/?trip=${state.trip.id}`;openModal(`<div class="modal-label">INVITE YOUR FRIENDS</div><h2 id="dialogTitle">우리 여행, 같이 짜요 💜</h2><p class="dialog-sub">아래 링크를 카톡으로 보내면 친구도 여행 일정을 보고 장소를 추가·수정할 수 있어요.</p><div class="share-link-box"><span title="${esc(url)}">${esc(url)}</span><button id="copyShare">${icon('link',13)} 복사</button></div><div class="notice">🔗 <b>링크를 아는 사람은 누구나 수정할 수 있습니다.</b> 링크를 공개 게시판에 올리지 않는 것을 추천드려요.<br>💡 서로 다른 기기에서 사용하려면 이 앱을 인터넷에 배포해야 합니다. localhost 주소는 다른 휴대폰에서 열리지 않아요.</div><div class="modal-actions"><button class="secondary-btn" id="closeShare">닫기</button><button class="primary-btn" id="nativeShare">${icon('share')} 공유하기</button></div>`);$('#copyShare').onclick=()=>copy(url);$('#closeShare').onclick=closeModal;$('#nativeShare').onclick=async()=>{try{if(navigator.share)await navigator.share({title:state.trip.title,text:'우리 여행 같이 계획하자! ✈️',url});else await copy(url);}catch{}};}
   async function copy(value){try{await navigator.clipboard.writeText(value);toast('링크를 복사했어요!');}catch{const el=document.createElement('textarea');el.value=value;el.style.position='fixed';el.style.left='-9999px';document.body.appendChild(el);el.select();const ok=document.execCommand('copy');el.remove();toast(ok?'링크를 복사했어요!':'자동 복사가 안 돼요. 링크를 길게 눌러 복사해주세요.',!ok);}}
-  function settingsModal(){const key=state.config.googleMapsKey?'서버 환경변수에 등록됨':localStorage.getItem('moatrip_google_key')?'이 기기에 등록됨':'미설정';openModal(`<div class="modal-label">APP SETTINGS</div><h2 id="dialogTitle">지도 · 앱 설정</h2><p class="dialog-sub">기본 지도와 대만 인기 장소 검색은 API 키 없이 사용할 수 있어요. 구글 지도를 앱 안에 표시하려면 별도의 API 키가 필요합니다.</p><div class="notice">현재 지도: <b>${state.provider==='google'?'Google Maps':'OpenStreetMap'}</b><br>구글지도 연동: <b>${esc(key)}</b></div><form id="googleKeyForm"><div class="form-field"><label for="googleKeyInput">Google Maps API 키 (선택)</label><input id="googleKeyInput" type="password" autocomplete="off" value="${esc(localStorage.getItem('moatrip_google_key')||'')}" placeholder="AIza..." /><p class="hint">이 설정은 앱 화면에 Google 지도를 표시할 때 사용합니다. Google Cloud의 Maps JavaScript API를 활성화하고, 브라우저 키는 사이트 주소(HTTP 리퍼러)로 제한하세요. Google 장소 검색은 서버의 GOOGLE_PLACES_API_KEY(별도 키)로 설정할 수 있습니다.</p></div><div class="modal-actions"><button type="button" class="secondary-btn" id="clearGoogleKey">로컬 키 삭제</button><button type="submit" class="primary-btn">저장 후 새로고침</button></div></form><div class="divider-text">도움말</div><p class="hint">장소는 이름으로 검색하거나 지도에서 직접 찍어 추가할 수 있습니다. 지도 위 점선은 방문 순서만 표현합니다. 실제 도로 경로와 소요시간은 <b>구글 지도 길찾기</b>에서 확인하세요.</p>`);$('#googleKeyForm').onsubmit=e=>{e.preventDefault();localStorage.setItem('moatrip_google_key',$('#googleKeyInput').value.trim());location.reload();};$('#clearGoogleKey').onclick=()=>{localStorage.removeItem('moatrip_google_key');location.reload();};}
+  function settingsModal(){const key=state.config.googleMapsKey?'서버 환경변수에 등록됨':localStorage.getItem('moatrip_google_key')?'이 기기에 등록됨':'미설정';openModal(`<div class="modal-label">APP SETTINGS</div><h2 id="dialogTitle">지도 · 앱 설정</h2><p class="dialog-sub">기본 지도와 대만 인기 장소 검색은 API 키 없이 사용할 수 있어요. 구글 지도를 앱 안에 표시하려면 별도의 API 키가 필요합니다.</p><div class="notice">현재 지도: <b>${state.provider==='google'?'Google Maps (한국어)':state.koreanLayer?'한국어 지도 (지도 번역 우선)':'OpenStreetMap (대체 지도)'}</b><br>구글지도 연동: <b>${esc(key)}</b></div><form id="googleKeyForm"><div class="form-field"><label for="googleKeyInput">Google Maps API 키 (선택)</label><input id="googleKeyInput" type="password" autocomplete="off" value="${esc(localStorage.getItem('moatrip_google_key')||'')}" placeholder="AIza..." /><p class="hint">이 설정은 앱 화면에 Google 지도를 표시할 때 사용합니다. Google Cloud의 Maps JavaScript API를 활성화하고, 브라우저 키는 사이트 주소(HTTP 리퍼러)로 제한하세요. Google 장소 검색은 서버의 GOOGLE_PLACES_API_KEY(별도 키)로 설정할 수 있습니다.</p></div><div class="modal-actions"><button type="button" class="secondary-btn" id="clearGoogleKey">로컬 키 삭제</button><button type="submit" class="primary-btn">저장 후 새로고침</button></div></form><div class="divider-text">도움말</div><p class="hint">장소는 이름으로 검색하거나 지도에서 직접 찍어 추가할 수 있습니다. 지도 위 점선은 방문 순서만 표현합니다. 실제 도로 경로와 소요시간은 <b>구글 지도 길찾기</b>에서 확인하세요.</p>`);$('#googleKeyForm').onsubmit=e=>{e.preventDefault();localStorage.setItem('moatrip_google_key',$('#googleKeyInput').value.trim());location.reload();};$('#clearGoogleKey').onclick=()=>{localStorage.removeItem('moatrip_google_key');location.reload();};}
   function placeModal(existing=null,coordinate=null){const day=existing?.day??(state.day===-1?0:state.day);state.editingId=existing?.id||null;state.candidate=existing?{name:existing.name,address:existing.address,lat:existing.lat,lng:existing.lng,googlePlaceId:existing.googlePlaceId||''}:coordinate?{name:'지도에서 선택한 장소',address:`${coordinate.lat.toFixed(5)}, ${coordinate.lng.toFixed(5)}`,lat:coordinate.lat,lng:coordinate.lng}:null;
     openModal(`<div class="modal-label">${existing?'EDIT PLACE':'ADD A PLACE'}</div><h2 id="dialogTitle">${existing?'장소 정보 수정':'어디에 가고 싶으세요? 📍'}</h2><p class="dialog-sub">가고 싶은 장소를 검색해서 일정에 쏙 추가해보세요.</p><div class="search-tabs"><button class="active" id="tabOsm" type="button">${icon('search',13)} 장소 검색</button>${state.provider==='google'?`<button id="tabGoogle" type="button">${icon('globe',13)} 구글 장소 검색</button>`:''}</div><div id="osmSearchSection"><div class="search-field"><span class="search-icon">${icon('search')}</span><input id="placeSearch" autocomplete="off" placeholder="예: 시먼딩, 타이베이 101, 九份" maxlength="150" /><button id="searchGo" type="button" class="inline-search">검색</button></div><div class="search-suggestions"><span>인기 검색</span><button type="button" data-search-suggest="타이베이 101">타이베이 101</button><button type="button" data-search-suggest="시먼딩">시먼딩</button><button type="button" data-search-suggest="지우펀">지우펀</button><button type="button" data-search-suggest="스펀">스펀</button></div><div class="search-results" id="searchResults"></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:5px"><span class="hint">대만 인기 장소 + 지도 검색 · 원어 이름도 검색 가능</span><button id="googleExternalSearch" type="button" class="tiny-link">구글지도에서 검색 ↗</button></div></div>${state.provider==='google'?'<div id="googleAutocompleteHost" class="hidden"></div>':''}<div class="selected-place ${state.candidate?'':'hidden'}" id="selectedPlace"><strong id="selectedPlaceName">${esc(state.candidate?.name||'')}</strong><span id="selectedPlaceAddress">${esc(state.candidate?.address||'')}</span></div><form id="placeForm"><div class="form-field"><label for="placeName">장소 이름 *</label><input id="placeName" maxlength="130" value="${esc(state.candidate?.name||'')}" placeholder="장소를 검색하거나 지도에서 선택하세요" required /></div><div class="form-row"><div class="form-field"><label for="placeDay">방문 날짜</label><select id="placeDay">${Array.from({length:state.trip.dayCount},(_,i)=>`<option value="${i}" ${i===day?'selected':''}>DAY ${i+1} · ${esc(formatDate(state.trip.startDate,i))}</option>`).join('')}</select></div><div class="form-field"><label for="placeCategory">카테고리</label><select id="placeCategory">${Object.entries(categories).map(([k,v])=>`<option value="${k}" ${k===(existing?.category||'spot')?'selected':''}>${v}</option>`).join('')}</select></div></div><div class="form-field"><label for="placeKind">지도에 어떻게 표시할까요?</label><select id="placeKind"><option value="plan" ${existing?.kind!=='candidate'?'selected':''}>✅ 정식 일정 · 동선에 연결</option><option value="candidate" ${existing?.kind==='candidate'?'selected':''}>⭐ 근처 후보 · 동선에서 제외</option></select></div><div class="form-row"><div class="form-field"><label for="placeTime">방문 시간 (선택)</label><input id="placeTime" type="time" value="${esc(existing?.time||'')}" /></div><div class="form-field"><label for="placeDuration">체류 시간 (분)</label><input id="placeDuration" type="number" min="0" max="1440" step="5" value="${existing?.duration||''}" placeholder="예: 60" /></div></div><div class="form-field"><label for="placeNote">메모 (선택)</label><textarea id="placeNote" maxlength="1500" placeholder="예약 시간, 먹을 메뉴, 주소, 꿀팁 등을 적어보세요.">${esc(existing?.note||'')}</textarea></div><div style="display:flex;justify-content:space-between;align-items:center;gap:9px"><button type="button" class="tiny-link" id="pickPlaceOnMap">${icon('crosshair',13)} 지도에서 위치 선택</button><span class="chosen-coordinate" id="coordinateStatus">${state.candidate?`${state.candidate.lat.toFixed(4)}, ${state.candidate.lng.toFixed(4)}`:'위치를 먼저 지정해주세요'}</span></div><div class="modal-actions">${existing?'<button type="button" class="danger-btn" id="removePlace">삭제</button>':''}<button type="button" class="secondary-btn" id="cancelPlace">취소</button><button type="submit" class="primary-btn">${icon('check')} ${existing?'변경 저장':'일정에 추가하기'}</button></div></form>`);
     $('#cancelPlace').onclick=closeModal;$('#placeForm').onsubmit=onSubmitPlace;$('#pickPlaceOnMap').onclick=()=>{closeModal();beginMapPick();};$('#googleExternalSearch').onclick=()=>{const q=$('#placeSearch').value.trim()||state.trip.destination;window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(q),'_blank','noopener,noreferrer');};

@@ -121,3 +121,17 @@ test('정식 일정 자동 시간순 추가와 후보 핀 정보를 API가 유�
   const edited=await call('/api/trips/'+tid+'/places/'+places[3].id,'PATCH',{kind:'plan'});
   assert.equal(edited.status,200);assert.equal(edited.trip.places[3].kind,'plan');
 });
+
+test('v1.3.0 한국어 벡터 지도가 기본으로 연결되고 실패 시 기존 지도를 유지',()=>{
+  const fs=require('node:fs');
+  const html=fs.readFileSync(require('node:path').join(__dirname,'../public/index.html'),'utf8');
+  const app=fs.readFileSync(require('node:path').join(__dirname,'../public/app.js'),'utf8');
+  assert.match(html,/maplibre-gl@4\.7\.1/);
+  assert.match(html,/maptoolkitLogo/);
+  assert.match(app,/summer-ko\.json/);
+  assert.match(app,/name_ko/);
+  assert.match(app,/name:ko/);
+  assert.match(app,/name_en/);
+  assert.match(app,/installKoreanBasemap\(raster\)/);
+  assert.match(app,/state\.map\.hasLayer\(raster\)/);
+});

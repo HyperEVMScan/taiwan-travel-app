@@ -35,3 +35,11 @@
   .workspace.mobile-list .map-top-bar,.workspace.mobile-list .map-bottom-controls,.workspace.mobile-list .mobile-map-days{display:none}
   .workspace.mobile-list .map-empty-hint{top:20%;bottom:auto}
 }
+
+/* Korean vector basemap attribution: Maptoolkit logo + non-collapsible copyright line. */
+.maptoolkit-logo{position:absolute;left:16px;bottom:7px;z-index:401;height:24px;display:block;pointer-events:auto}
+.maptoolkit-logo[hidden]{display:none!important}
+.maptoolkit-logo img{height:24px;width:auto;max-width:114px;object-fit:contain;display:block}
+.map-panel:has(.maptoolkit-logo:not([hidden])) .map-source{left:143px;bottom:13px;font-size:9px}
+.map-panel .leaflet-control-attribution{background:rgba(255,255,255,.92)!important;padding:2px 6px!important;max-width:55vw;white-space:normal;text-align:right}
+@media(max-width:850px){.maptoolkit-logo{left:8px;bottom:7px}.map-panel:has(.maptoolkit-logo:not([hidden])) .map-source{display:none}.map-panel .leaflet-control-attribution{font-size:8px!important;max-width:59vw}}
