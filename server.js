@@ -13,8 +13,12 @@ const USE_TURSO = Boolean(TURSO_URL && TURSO_TOKEN);
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 const GOOGLE_PLACES_KEY = process.env.GOOGLE_PLACES_API_KEY || '';
 const TAIWAN_PLACES = require('./locations/taiwan.json');
+const {parseQuickText,orderedInsert,validKind,validPriority} = require('./lib/quick-add');
+const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const clients = new Map();
 const searchCache = new Map();
+const previewRate = new Map();
 let writes = Promise.resolve();
 let initialized;
 
@@ -39,6 +43,8 @@ function safePlace(body, dayCount, current = {}) {
   if ('lng' in data) p.lng = point(data.lng);
   if ('duration' in data) p.duration = Math.min(1440, Math.max(0, Math.trunc(Number(data.duration) || 0)));
   if ('googlePlaceId' in data) p.googlePlaceId = clean(data.googlePlaceId, 200);
+  if ('kind' in data) p.kind = validKind(data.kind);
+  if (!p.kind) p.kind = 'plan';
   if (!p.name) throw problem(400, '장소 이름을 입력해주세요.');
   if (!Number.isInteger(p.day) || p.day < 0 || p.day >= dayCount) throw problem(400, '여행 날짜가 올바르지 않습니다.');
   if (!Number.isFinite(p.lat) || p.lat < -90 || p.lat > 90 || !Number.isFinite(p.lng) || p.lng < -180 || p.lng > 180) throw problem(400, '지도 좌표가 올바르지 않습니다.');
@@ -126,12 +132,12 @@ function sendJSON(res, status, data) {
   res.writeHead(status, {'Content-Type':'application/json; charset=utf-8','Content-Length':Buffer.byteLength(body), 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff'});
   res.end(body);
 }
-async function readBody(req) {
+async function readBody(req, maxBytes=1048576) {
   let bytes = 0;
   const chunks = [];
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > 1048576) throw problem(413, '요청 크기가 너무 큽니다.');
+    if (bytes > maxBytes) throw problem(413, '요청 크기가 너무 큽니다.');
     chunks.push(chunk);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
@@ -213,6 +219,67 @@ async function searchPlaces(q, lat, lon) {
   return output;
 }
 
+
+function takeImage(dataUrl){
+  if(!dataUrl)return null;
+  if(typeof dataUrl!=='string')throw problem(400,'사진 형식이 올바르지 않습니다.');
+  const m=dataUrl.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/);
+  if(!m||m[2].length>4400000||m[2].length<80)throw problem(400,'JPG, PNG, WebP 사진(최대 3MB)을 선택해주세요.');
+  return {mimeType:'image/'+m[1],data:m[2]};
+}
+function normalizeAiResult(data){
+  const category=['spot','food','cafe','hotel','shopping','transport'].includes(data?.category)?data.category:'spot';
+  return {name:clean(data?.placeName||data?.name,130),alias:clean(data?.localName||data?.alias,130),category,
+    details:clean(data?.details,350),nearby:clean(data?.nearby,350)};
+}
+async function extractPhotoWithGemini(image,note){
+  if(!GEMINI_KEY)throw problem(422,'사진 자동 인식은 아직 설정되지 않았습니다. Render의 GEMINI_API_KEY를 연결해주세요. 사진 없이 장소 이름을 입력해 추가할 수 있습니다.');
+  const prompt=`You are reading a screenshot of a Taiwanese travel blog/map/restaurant recommendation. Extract ONLY the main specific place/business visible, not the blog author, date or headings. Preserve exact traditional Chinese and English business name if visible. User note takes precedence for schedule instructions. Never invent location/address/coordinates. If no identifiable place, placeName must be empty. Classify main place into spot,food,cafe,hotel,shopping,transport. Return concise JSON keys: placeName, localName, category, details, nearby. Nearby other shop mentioned in note should be a note, NOT a second place. User note: ${note.slice(0,1200)}`;
+  const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,{
+    method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':GEMINI_KEY},
+    body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:image.mimeType,data:image.data}}]}],generationConfig:{responseMimeType:'application/json',temperature:0.1}}),signal:AbortSignal.timeout(24000)
+  });
+  if(!response.ok){const err=await response.text().catch(()=> '');console.warn('Gemini error:',response.status,err.slice(0,120));throw problem(502,'사진 분석 서비스에 연결할 수 없습니다. API 키와 모델 설정을 확인해주세요.');}
+  const json=await response.json();const output=json.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
+  try {return normalizeAiResult(JSON.parse(output.replace(/^```(?:json)?\s*|\s*```$/g,'')));}
+  catch {throw problem(502,'사진에서 장소 이름을 인식하지 못했습니다. 장소 이름을 직접 입력해주세요.');}
+}
+function guardQuickRate(req, tripId){
+  const addr=String(req.socket.remoteAddress||'unknown');
+  const key=tripId+':'+addr;
+  const now=Date.now(),old=previewRate.get(key)||[];
+  const active=old.filter(ts=>now-ts<15*60*1000);
+  if(active.length>=25)throw problem(429,'사진·장소 검색은 15분에 최대 25회까지 가능합니다. 잠시 후 다시 시도해주세요.');
+  active.push(now);previewRate.set(key,active);
+  if(previewRate.size>1500){for(const [k,v] of previewRate){if(now-v.at(-1)>15*60*1000)previewRate.delete(k);}}
+}
+async function quickPreview(body,trip){
+  const note=clean(body?.note,1800);
+  const image=takeImage(body?.image);
+  const typedName=clean(body?.name,130);
+  if(!image&&!typedName&&!note)throw problem(400,'사진이나 장소 이름, 메모를 입력해주세요.');
+  const first=parseQuickText(note,trip,Number(body?.activeDay));
+  const ai=image&&!typedName?await extractPhotoWithGemini(image,note):null;
+  const name=typedName||ai?.name||'';
+  const categoryOverride=['spot','food','cafe','hotel','shopping','transport'].includes(body?.category)?body.category:null;
+  const kindOverride=['plan','candidate'].includes(body?.kind)?body.kind:null;
+  const category=categoryOverride||((ai?.category&&ai.category!=='spot')?ai.category:first.category);
+  const kind=kindOverride||first.kind;
+  const day=Number.isInteger(Number(body?.day))&&Number(body.day)>=0&&Number(body.day)<trip.dayCount?Number(body.day):first.day;
+  const time=/^([01]\d|2[0-3]):[0-5]\d$/.test(body?.time||'')?body.time:first.time;
+  const priority=['first','last'].includes(body?.priority)?body.priority:first.priority;
+  const combined=[note,ai?.nearby&&!note.includes(ai.nearby)?'근처 참고: '+ai.nearby:'',ai?.details&&!note.includes(ai.details)?'사진 정보: '+ai.details:''].filter(Boolean).join('\n').slice(0,1500);
+  let matches=[],lookupError='';
+  if(name.length>=2){
+    for(const query of [name,ai?.alias].filter(Boolean)){
+      try{const r=await searchPlaces(query,25.0479,121.5171);matches=r.results.filter(p=>p.lat>=21&&p.lat<=26.6&&p.lng>=119&&p.lng<=123).slice(0,7);if(matches.length)break;}
+      catch(e){lookupError=e.message;}
+    }
+  }
+  // Never silently persist an ambiguous search hit. The UI always offers review before save.
+  return {draft:{name,category,kind,day,time,priority,note:combined},matches,photoAiEnabled:!!GEMINI_KEY,lookupError};
+}
+
 const MIME = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.webmanifest':'application/manifest+json; charset=utf-8'};
 async function serveStatic(res, pathname) {
   let decoded;
@@ -231,8 +298,8 @@ function createServer() {
     try {
       const url = new URL(req.url,'http://localhost');
       const pathname = url.pathname;
-      if (pathname === '/api/health' && req.method === 'GET') return sendJSON(res,200,{ok:true, storage:USE_TURSO?'turso':'local',googleMapsEnabled:!!GOOGLE_KEY,googlePlacesEnabled:!!GOOGLE_PLACES_KEY});
-      if (pathname === '/api/config' && req.method === 'GET') return sendJSON(res,200,{googleMapsKey:GOOGLE_KEY,googlePlacesEnabled:!!GOOGLE_PLACES_KEY,storage:USE_TURSO?'turso':'local'});
+      if (pathname === '/api/health' && req.method === 'GET') return sendJSON(res,200,{ok:true, storage:USE_TURSO?'turso':'local',googleMapsEnabled:!!GOOGLE_KEY,googlePlacesEnabled:!!GOOGLE_PLACES_KEY,photoAiEnabled:!!GEMINI_KEY});
+      if (pathname === '/api/config' && req.method === 'GET') return sendJSON(res,200,{googleMapsKey:GOOGLE_KEY,googlePlacesEnabled:!!GOOGLE_PLACES_KEY,photoAiEnabled:!!GEMINI_KEY,storage:USE_TURSO?'turso':'local'});
       if (pathname === '/api/search' && req.method === 'GET') {
         const q = clean(url.searchParams.get('q'),150);
         if(q.length<2) return sendJSON(res,200,{results:[]});
@@ -260,6 +327,13 @@ function createServer() {
           if(!trip) throw problem(404,'여행을 찾을 수 없습니다.');
           return sendJSON(res,200,{trip});
         }
+        if(rest==='quick-preview' && req.method==='POST') {
+          const trip=await getTrip(id);if(!trip)throw problem(404,'여행을 찾을 수 없습니다.');
+          guardQuickRate(req,id);
+          const body=await readBody(req,5200000);
+          const preview=await quickPreview(body,trip);
+          return sendJSON(res,200,preview);
+        }
         if(rest==='events' && req.method==='GET') {
           if (!(await getTrip(id))) throw problem(404,'여행을 찾을 수 없습니다.');
           res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});
@@ -286,7 +360,8 @@ function createServer() {
           const {trip,result}=await mutation(id,t=>{
             if(t.places.length>=250)throw problem(400,'장소는 여행당 최대 250개입니다.');
             const place={...safePlace(body,t.dayCount),id:crypto.randomUUID(),createdAt:new Date().toISOString()};
-            t.places.push(place);
+            if (body.smartOrder === true) orderedInsert(t.places,place,validPriority(body.priority));
+            else t.places.push(place);
             return place;
           });return sendJSON(res,201,{trip,place:result});
         }

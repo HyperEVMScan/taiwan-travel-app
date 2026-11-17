@@ -69,3 +69,55 @@ test('공유 여행 변경이 다른 연결에 SSE로 실시간 전달됨',async
     await reader.cancel().catch(()=>{});
   }
 });
+
+const {parseQuickText,orderedInsert}=require('../lib/quick-add');
+test('사진 메모: 셋째날 오전 8시 첫 주먹밥 맛집 판별',()=>{
+  const trip={startDate:'2026-07-21',dayCount:4};
+  const p=parseQuickText('여기 7/23 셋째날 처음 갈곳 시간은 8시쯤. 주먹밥 맛집임 // 근처에 총촤빙 맛집 있다고함',trip,0);
+  assert.equal(p.day,2);assert.equal(p.time,'08:00');assert.equal(p.category,'food');assert.equal(p.kind,'plan');assert.equal(p.priority,'first');
+});
+test('근처 후보는 정확히 분류하고 일자 자동 인식, 오후 8시는 20시',()=>{
+  const trip={startDate:'2026-11-21',dayCount:4};
+  const p=parseQuickText('Day 2 오후 8시 소품샵 근처 후보 저장만',trip,0);
+  assert.equal(p.day,1);assert.equal(p.time,'20:00');assert.equal(p.category,'shopping');assert.equal(p.kind,'candidate');
+  assert.equal(parseQuickText('11/24 오후 3시 카페',trip,0).day,3);
+});
+test('자동 동선 삽입: 08:00, 12:00, 17:00 시간순 및 첫 코스 우선',()=>{
+  const ps=[{day:2,time:'12:00',lat:25.02,lng:121.5,kind:'plan',name:'점심'}, {day:2,time:'17:00',lat:25.04,lng:121.6,kind:'plan',name:'저녁'}];
+  orderedInsert(ps,{day:2,time:'08:00',lat:25.01,lng:121.51,kind:'plan',name:'아침'},'auto');
+  assert.deepEqual(ps.map(p=>p.name),['아침','점심','저녁']);
+  orderedInsert(ps,{day:2,time:'',lat:25.0,lng:121.5,kind:'plan',name:'첫 방문'},'first');
+  assert.equal(ps[0].name,'첫 방문');
+  orderedInsert(ps,{day:2,time:'',lat:25.01,lng:121.52,kind:'candidate',name:'소품샵'},'auto');
+  assert.equal(ps.at(-1).name,'소품샵');
+});
+test('빠른 입력: 저장소와 검색을 통해 별도 API 키 없이 여행 일정 추가',async()=>{
+  const r=await call('/api/trips','POST',{...sample,title:'대만 여행 빠른 추가',destination:'대만'});const tid=r.trip.id;
+  const preview=await call('/api/trips/'+tid+'/quick-preview','POST',{name:'타이베이 101',note:'3일째 오전 8시 첫 방문, 관광',activeDay:0,kind:'candidate'});
+  assert.equal(preview.status,200);
+  assert.equal(preview.draft.day,2);assert.equal(preview.draft.time,'08:00');assert.equal(preview.draft.kind,'candidate');
+  assert.ok(preview.matches.some(x=>x.name==='타이베이 101'));
+  const location=preview.matches[0];
+  const add=await call('/api/trips/'+tid+'/places','POST',{day:preview.draft.day,name:location.name,lat:location.lat,lng:location.lng,kind:'candidate',category:'spot',smartOrder:true});
+  assert.equal(add.status,201);assert.equal(add.place.kind,'candidate');
+  assert.equal((await call('/api/trips/'+tid)).trip.places[0].kind,'candidate');
+});
+test('사진 분석 설정이 없으면 설명하는 오류 반환 및 잘못된 사진 입력 거절',async()=>{
+  const trip=await call('/api/trips','POST',sample);const url='/api/trips/'+trip.trip.id+'/quick-preview';
+  const wrong=await call(url,'POST',{image:'data:image/svg+xml;base64,aGVsbG8=',note:'여기'});
+  assert.equal(wrong.status,400);
+  const photo=await call(url,'POST',{image:'data:image/png;base64,'+'a'.repeat(300),note:'여기 오후 3시'});
+  assert.equal(photo.status,422);assert.match(photo.error,/GEMINI_API_KEY/);
+  const manual=await call(url,'POST',{name:'시먼딩',image:'data:image/jpeg;base64,'+'a'.repeat(300),note:'둘째날 13시'});
+  assert.equal(manual.status,200);assert.equal(manual.draft.day,1);
+});
+test('정식 일정 자동 시간순 추가와 후보 핀 정보를 API가 유지',async()=>{
+  const r=await call('/api/trips','POST',sample);const tid=r.trip.id;
+  const add=(name,time,kind='plan',priority='auto')=>call('/api/trips/'+tid+'/places','POST',{name,day:2,time,kind,priority,smartOrder:true,category:kind==='candidate'?'shopping':'food',lat:25.041,lng:121.51});
+  await add('점심','12:00');await add('저녁','18:00');await add('아침','08:00');await add('근처 쇼핑','', 'candidate');
+  const places=(await call('/api/trips/'+tid)).trip.places;
+  assert.deepEqual(places.map(p=>p.name),['아침','점심','저녁','근처 쇼핑']);
+  assert.equal(places[3].kind,'candidate');
+  const edited=await call('/api/trips/'+tid+'/places/'+places[3].id,'PATCH',{kind:'plan'});
+  assert.equal(edited.status,200);assert.equal(edited.trip.places[3].kind,'plan');
+});

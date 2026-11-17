@@ -29,6 +29,7 @@
         <div class="planner-content">
           <div class="trip-heading"><div class="eyebrow"><span data-icon="sparkles"></span> MY TRAVEL PLANNER</div><div class="trip-heading-title"><h1 id="tripTitle">우리의 여행을 계획해요</h1><button id="editTripBtn" class="heading-edit" type="button" aria-label="여행 정보 수정"><span data-icon="pencil"></span></button></div><div class="trip-meta" id="tripMeta"><span data-icon="map-pin"></span> 여행지를 선택해주세요</div></div>
           <div class="day-tabs-wrap"><div class="day-tabs" id="dayTabs" role="tablist" aria-label="여행 날짜"></div></div>
+          <div class="quick-add-banner"><button type="button" id="quickAddBtn" class="quick-add-cta"><span data-icon="camera"></span><span><strong>📸 캡처 + 메모로 빠르게 추가</strong><small>맛집·카페·쇼핑 장소를 자동으로 분류해요</small></span><span data-icon="chevron-right"></span></button></div>
           <div class="day-heading"><div><div class="day-overline" id="dayOverline">DAY 01 · PLAN YOUR DAY</div><h2 id="dayHeading">오늘은 어디로 갈까요?</h2><p class="day-subtitle" id="daySubtitle">장소를 추가하면 동선이 지도에 표시돼요.</p></div><div class="day-count" id="dayCountBadge">0 places</div></div>
           <div class="itinerary-container" id="itinerary"></div>
           <div class="add-bottom"><button type="button" class="add-place-btn" id="addPlaceBtn"><span data-icon="plus"></span> 장소 추가하기 <span class="add-shortcut">＋</span></button><p class="saving-info"><span data-icon="cloud"></span> 모든 변경 내용은 자동 저장돼요</p></div>
@@ -41,7 +42,7 @@
         <nav id="mobileMapDays" class="mobile-map-days" aria-label="지도 날짜 선택"></nav>
         <div id="mapPickBanner" class="pick-banner hidden"><span data-icon="crosshair"></span> 지도에서 추가할 위치를 선택하세요 <button type="button" id="cancelPickBtn">취소</button></div>
         <div class="map-empty-hint" id="mapEmptyHint"><span class="empty-map-icon" data-icon="map-pin"></span><strong>지도를 따라 여행을 그려보세요</strong><span>왼쪽에서 장소를 추가해보세요!</span></div>
-        <div class="map-bottom-controls"><div class="map-legend"><span class="legend-line"></span><span>방문 순서 (직선 연결)</span></div><div class="map-bottom-actions"><select aria-label="이동 수단" id="routeMode"><option value="driving">🚗 자동차</option><option value="walking">🚶 도보</option><option value="transit">🚇 대중교통</option></select><button id="directionsBtn" class="direction-btn"><span data-icon="navigation"></span> 구글 지도 길찾기 <span data-icon="external-link"></span></button></div></div>
+        <div class="map-bottom-controls"><div class="map-legend cat-legend"><span><i style="background:#ee5766"></i>맛집</span><span><i style="background:#4274ef"></i>쇼핑</span><span><i style="background:#f3b52b"></i>카페/간식</span><label class="candidate-switch"><input id="toggleCandidates" type="checkbox" checked /> ⭐ 근처 후보</label><small>점선: 방문 순서</small></div><div class="map-bottom-actions"><select aria-label="이동 수단" id="routeMode"><option value="driving">🚗 자동차</option><option value="walking">🚶 도보</option><option value="transit">🚇 대중교통</option></select><button id="directionsBtn" class="direction-btn"><span data-icon="navigation"></span> 구글 지도 길찾기 <span data-icon="external-link"></span></button></div></div>
         <div class="map-source" id="mapSource">지도: OpenStreetMap</div>
       </section>
     </main>
