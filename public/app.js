@@ -235,18 +235,62 @@
     if(encoded.length>4300000)throw Error('사진을 조금 더 작게 캡처해주세요.');
     return encoded;
   }
-  function quickAddModal(){state.quickDraft=null;state.quickMatches=[];state.quickSelection=-1;
+  function quickAddModal(){state.quickDraft=null;state.quickMatches=[];state.quickSelection=-1;state.quickOcrResult=null;state.quickOcrPending=null;
     const d=state.day>=0?state.day:0;
-    openModal(`<div class="modal-label">QUICK CAPTURE</div><h2 id="dialogTitle">📸 사진 + 한 줄로 장소 추가</h2><p class="dialog-sub">맛집 블로그나 구글 지도 화면을 캡처하고, 어느 날 몇 시에 갈지만 적어보세요.</p><form id="quickForm"><div class="capture-upload"><input id="quickPhoto" type="file" accept="image/*" /><div class="capture-preview" id="quickImagePreview">${icon('camera',26)}<strong>스크린샷 또는 사진 선택</strong><span>앨범에서 바로 업로드 · 사진은 분석 후 저장하지 않아요</span></div></div><div class="form-field"><label for="quickNote">짧은 메모</label><textarea id="quickNote" placeholder="예: 셋째날 첫 장소, 오전 8시쯤. 주먹밥 맛집! 근처 총좌빙도 메모해두기" maxlength="1500" rows="4"></textarea></div><div class="form-field"><label for="quickName">사진이 없거나 자동 인식을 사용할 수 없다면 장소 이름</label><input id="quickName" maxlength="130" placeholder="예: Master of Rice Ball 飯糰霸 (선택)" /></div><div class="form-row"><div class="form-field"><label for="quickDay">날짜</label><select id="quickDay"><option value="">메모에서 자동 판별 (기본 DAY ${d+1})</option>${Array.from({length:state.trip.dayCount},(_,i)=>`<option value="${i}">DAY ${i+1} · ${esc(formatDate(state.trip.startDate,i))}</option>`).join('')}</select></div><div class="form-field"><label for="quickKind">저장 유형</label><select id="quickKind"><option value="plan">✅ 정식 일정</option><option value="candidate">⭐ 근처 후보 (동선 제외)</option></select></div></div><div class="quick-legend">🔴 맛집 · 🔵 쇼핑 · 🟡 카페/간식 · 🟣 관광 · 🟢 숙소</div>${!state.config.photoAiEnabled?'<div class="quick-warning">사진 자동 인식은 아직 꺼져 있어요. 사진 속 장소 이름을 직접 입력하면 빠르게 지도 검색·일정 등록이 가능합니다. AI 인식은 Render 환경변수 GEMINI_API_KEY 설정 후 사용할 수 있습니다.</div>':''}<div class="modal-actions"><button type="button" class="secondary-btn" id="quickCancel">취소</button><button type="submit" class="primary-btn" id="quickAnalyze">${icon('sparkles',16)} ${state.config.photoAiEnabled?'사진 분석하고 장소 찾기':'장소 찾아서 추가하기'}</button></div></form><div id="quickResults" class="hidden"></div>`);
+    openModal(`<div class="modal-label">QUICK CAPTURE · FREE OCR</div><h2 id="dialogTitle">📸 사진 글자 추출 + 장소 추가</h2><p class="dialog-sub">스크린샷을 선택하면 한국어·영어·대만 번체 중국어 글자를 읽어요. Gemini 키는 필요하지 않아요.</p><form id="quickForm"><div class="capture-upload"><input id="quickPhoto" type="file" accept="image/png,image/jpeg,image/webp,image/*" /><div class="capture-preview" id="quickImagePreview">${icon('camera',26)}<strong>스크린샷 또는 사진 선택</strong><span>선택하면 자동으로 글자 추출 · 이미지는 서버에 올리지 않아요</span></div></div><div class="ocr-status-row"><div class="ocr-status" id="quickOcrStatus" role="status" aria-live="polite">사진을 선택하면 글자 추출을 시작합니다.</div><button type="button" id="quickOcrRun" class="ocr-retry" disabled>다시 추출</button></div><div class="ocr-result-panel hidden" id="quickOcrPanel"><div class="form-field"><label for="quickOcrText">사진에서 추출한 글자 <span class="ocr-hint">틀린 글자는 직접 수정할 수 있어요</span></label><textarea id="quickOcrText" rows="5" maxlength="4500" spellcheck="false" placeholder="사진의 글자가 여기에 표시됩니다"></textarea></div><div class="ocr-candidate-title">인식된 장소명 후보 · 누르면 아래 검색어에 입력됩니다</div><div id="quickOcrNames" class="ocr-name-chips"></div><label class="ocr-save-note"><input type="checkbox" id="quickOcrNote" /> 추출한 글자도 일정 메모에 첨부하기</label></div><div class="form-field"><label for="quickNote">짧은 메모 · 날짜와 시간을 적어주세요</label><textarea id="quickNote" placeholder="예: 7/23 셋째 날 첫 장소, 오전 8시쯤. 근처 총좌빙 맛집도 메모!" maxlength="1500" rows="4"></textarea></div><div class="form-field"><label for="quickName">장소 이름 / 검색어 <span class="ocr-hint">사진에서 인식된 후보를 확인해주세요</span></label><input id="quickName" maxlength="130" placeholder="예: Master of Rice Ball 飯糰霸" /></div><div class="form-row"><div class="form-field"><label for="quickDay">날짜</label><select id="quickDay"><option value="">메모에서 자동 판별 (기본 DAY ${d+1})</option>${Array.from({length:state.trip.dayCount},(_,i)=>`<option value="${i}">DAY ${i+1} · ${esc(formatDate(state.trip.startDate,i))}</option>`).join('')}</select></div><div class="form-field"><label for="quickKind">저장 유형</label><select id="quickKind"><option value="plan">✅ 정식 일정</option><option value="candidate">⭐ 근처 후보 (동선 제외)</option></select></div></div><div class="quick-legend">🔴 맛집 · 🔵 쇼핑 · 🟡 카페/간식 · 🟣 관광 · 🟢 숙소</div><div class="quick-warning">📝 OCR은 사진의 글자만 읽습니다. 장소 위치와 방문 날짜·시간은 검색 결과를 확인한 뒤 저장해주세요. 첫 실행에는 언어 파일을 내려받기 때문에 시간이 걸릴 수 있습니다.</div><div class="modal-actions"><button type="button" class="secondary-btn" id="quickCancel">취소</button><button type="submit" class="primary-btn" id="quickAnalyze">${icon('search',16)} 지도에서 장소 찾아보기</button></div></form><div id="quickResults" class="hidden"></div>`);
     $('#quickCancel').onclick=closeModal;
-    $('#quickPhoto').onchange=e=>{const file=e.target.files?.[0],el=$('#quickImagePreview');if(!file){el.innerHTML=`${icon('camera',26)}<strong>스크린샷 선택</strong>`;return;}el.textContent='📷 '+file.name+' · '+(file.size/1024/1024).toFixed(1)+'MB 선택됨';};
-    $('#quickForm').onsubmit=async e=>{e.preventDefault();const submit=$('#quickAnalyze');submit.disabled=true;submit.textContent='사진과 장소를 분석하고 있어요…';try{
-      const name=$('#quickName').value.trim();const photo=$('#quickPhoto').files?.[0];if(!name&&!photo)throw Error('사진을 넣거나 장소 이름을 입력해주세요.');
-      // A manually supplied name works without AI even when a screenshot is attached.
-      const image=!name&&photo?await compactImage(photo):'';
-      const data=await api('/api/trips/'+state.trip.id+'/quick-preview',{method:'POST',body:JSON.stringify({image,name,note:$('#quickNote').value,day:$('#quickDay').value===''?undefined:Number($('#quickDay').value),activeDay:state.day>=0?state.day:0,kind:$('#quickKind').value}),headers:{'Content-Type':'application/json'}});
+    const selectedName=$('#quickName');
+    function refreshOcrChoices(){const field=$('#quickOcrText');if(!field)return;const names=window.MoaOCR?.extractCandidates(field.value)||[];const list=$('#quickOcrNames');list.replaceChildren();
+      if(!names.length){list.textContent='장소명을 찾지 못했다면 아래 검색어 칸에 직접 적어주세요.';return;}
+      names.forEach(name=>{const b=document.createElement('button');b.type='button';b.className='ocr-name-choice';b.textContent=name;b.title='장소명으로 선택';b.onclick=()=>{selectedName.value=name;list.querySelectorAll('button').forEach(n=>n.classList.remove('selected'));b.classList.add('selected');selectedName.focus();};list.appendChild(b);});
+    }
+    async function performOcr(file){if(!file)return;
+      const token=(state.quickOcrToken||0)+1;state.quickOcrToken=token;
+      const status=$('#quickOcrStatus'),retry=$('#quickOcrRun');retry.disabled=true;
+      status.textContent='🔎 사진 글자를 준비하고 있어요. 첫 실행 시 언어 데이터를 내려받습니다…';
+      state.quickOcrResult=null;
+      try{
+        if(!window.MoaOCR?.recognize)throw Error('OCR 기능 파일을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.');
+        const res=await window.MoaOCR.recognize(file,m=>{
+          if(token!==state.quickOcrToken||!document.getElementById('quickOcrStatus'))return;
+          const pct=Number.isFinite(m?.progress)?Math.round(m.progress*100):null;
+          const stages={'loading tesseract core':'OCR 엔진 다운로드 중','loading language traineddata':'한국어·영어·중국어 데이터 다운로드 중','recognizing text':'글자 읽는 중','initializing api':'글자 분석 준비 중'};
+          status.textContent='🔎 '+(stages[m?.status]||'사진 분석 중')+(pct!==null?` ${pct}%`:'')+'…';
+        });
+        if(token!==state.quickOcrToken||!document.getElementById('quickOcrText'))return;
+        state.quickOcrResult=res;
+        $('#quickOcrText').value=res.text;
+        $('#quickOcrPanel').classList.remove('hidden');
+        refreshOcrChoices();
+        if(!selectedName.value.trim()&&res.candidates[0])selectedName.value=res.candidates[0];
+        status.textContent=`✅ 글자 ${res.text.length.toLocaleString('ko-KR')}자 추출 완료. 장소명과 메모를 확인해주세요.`;
+      }catch(err){if(token!==state.quickOcrToken||!document.getElementById('quickOcrStatus'))return;
+        status.textContent='⚠️ '+(err?.message||'글자 인식에 실패했습니다. 사진을 다시 선택하거나 장소명을 입력해주세요.');
+      }finally{if(token===state.quickOcrToken&&document.getElementById('quickOcrRun'))retry.disabled=false;}
+    }
+    $('#quickOcrRun').onclick=()=>{const f=$('#quickPhoto').files?.[0];if(f)state.quickOcrPending=performOcr(f);};
+    $('#quickPhoto').onchange=e=>{const file=e.target.files?.[0],el=$('#quickImagePreview');
+      if(!file){el.innerHTML=`${icon('camera',26)}<strong>스크린샷 선택</strong>`;return;}
+      el.textContent='📷 '+file.name+' · '+(file.size/1024/1024).toFixed(1)+'MB · 글자 추출 중';
+      $('#quickOcrPanel').classList.add('hidden');
+      state.quickOcrPending=performOcr(file);
+    };
+    $('#quickOcrText').oninput=()=>{const value=$('#quickOcrText').value;state.quickOcrResult={text:value,candidates:window.MoaOCR.extractCandidates(value),category:window.MoaOCR.guessCategory(value)};refreshOcrChoices();};
+    $('#quickForm').onsubmit=async e=>{e.preventDefault();const submit=$('#quickAnalyze');submit.disabled=true;submit.textContent='장소와 날짜를 확인하고 있어요…';try{
+      const photo=$('#quickPhoto').files?.[0];
+      if(photo&&state.quickOcrPending)await state.quickOcrPending;
+      const name=$('#quickName').value.trim();
+      if(!name)throw Error('인식된 장소명 후보를 선택하거나 장소 이름을 직접 입력해주세요.');
+      const userNote=$('#quickNote').value.trim();
+      const ocrText=$('#quickOcrText').value.trim();
+      const extra=$('#quickOcrNote').checked&&ocrText?('\n사진에서 추출한 글자:\n'+ocrText.slice(0,800)):'';
+      const note=(userNote+extra).slice(0,1500);
+      const explicitCategory=window.MoaOCR?.guessCategory(userNote)||'spot';
+      const inferredCategory=explicitCategory!=='spot'?explicitCategory:window.MoaOCR?.guessCategory((ocrText+'\n'+name).slice(0,3000))||'spot';
+      // OCR runs on-device. The photograph itself is NEVER sent to /quick-preview.
+      const data=await api('/api/trips/'+state.trip.id+'/quick-preview',{method:'POST',body:JSON.stringify({name,note,category:inferredCategory,day:$('#quickDay').value===''?undefined:Number($('#quickDay').value),activeDay:state.day>=0?state.day:0,kind:$('#quickKind').value}),headers:{'Content-Type':'application/json'}});
       state.quickDraft=data.draft;state.quickMatches=data.matches||[];state.quickSelection=-1;showQuickReview(data);
-    }catch(err){toast(err.message,true);submit.disabled=false;submit.innerHTML=icon('sparkles',16)+' 다시 검색';}};
+    }catch(err){toast(err.message,true);submit.disabled=false;submit.innerHTML=icon('search',16)+' 다시 검색';}};
   }
   function showQuickReview(data){const d=data.draft;const el=$('#quickResults');$('#quickForm').classList.add('hidden');el.classList.remove('hidden');
     el.innerHTML=`<div class="quick-result-title">${icon('check',18)} 분석 결과 확인</div><p class="hint">사진 인식 결과와 지도 검색 결과는 틀릴 수 있습니다. 정확한 장소를 선택한 후 저장해주세요.</p><div class="form-field"><label for="quickResolvedName">장소 이름 / 검색어</label><div class="search-field quick-search"><input id="quickResolvedName" maxlength="130" value="${esc(d.name)}" placeholder="대만 현지어, 영문명도 검색 가능" /><button id="quickSearchAgain" type="button" class="inline-search">다시 검색</button></div></div><div id="quickMatchList"></div><div class="form-row"><div class="form-field"><label for="quickReviewDay">방문 날짜</label><select id="quickReviewDay">${Array.from({length:state.trip.dayCount},(_,i)=>`<option value="${i}" ${i===d.day?'selected':''}>DAY ${i+1} · ${esc(formatDate(state.trip.startDate,i))}</option>`).join('')}</select></div><div class="form-field"><label for="quickReviewTime">방문 시간</label><input id="quickReviewTime" type="time" value="${esc(d.time)}" /></div></div><div class="form-row"><div class="form-field"><label for="quickReviewCategory">장소 종류</label><select id="quickReviewCategory">${Object.entries(categories).map(([k,v])=>`<option value="${k}" ${k===d.category?'selected':''}>${v}</option>`).join('')}</select></div><div class="form-field"><label for="quickReviewKind">지도 핀 유형</label><select id="quickReviewKind"><option value="plan" ${d.kind!=='candidate'?'selected':''}>✅ 정식 일정</option><option value="candidate" ${d.kind==='candidate'?'selected':''}>⭐ 근처 후보</option></select></div></div><div class="form-field"><label for="quickReviewNote">메모</label><textarea id="quickReviewNote" rows="3" maxlength="1500">${esc(d.note)}</textarea></div><div class="form-field"><label for="quickReviewPriority">동선에 넣는 위치</label><select id="quickReviewPriority"><option value="auto" ${d.priority==='auto'?'selected':''}>시간순 · 시간 없으면 가까운 곳에 배치</option><option value="first" ${d.priority==='first'?'selected':''}>이 날의 첫 장소</option><option value="last" ${d.priority==='last'?'selected':''}>이 날의 마지막 장소</option></select></div><div class="modal-actions"><button type="button" class="secondary-btn" id="quickBack">다시 입력</button><button type="button" class="primary-btn" id="quickSave" disabled>${icon('plus')} 지도와 일정에 추가하기</button></div>`;

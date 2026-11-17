@@ -1,8 +1,8 @@
 {
   "name": "moatrip",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "대만 여행 한국어 지명 지도, 사진·메모 일정 입력, 카테고리 핀, 공동 편집",
+  "description": "대만 여행 한국어 지도, 아이폰 무료 브라우저 OCR(한국어/중국어/영어), 사진·메모 장소 등록, 공동 편집",
   "engines": {
     "node": ">=20"
   },
@@ -10,6 +10,6 @@
     "start": "node server.js",
     "dev": "node server.js",
     "test": "node --test test/*.test.js",
-    "verify": "node --check server.js && node --check lib/quick-add.js && node --check public/app.js && npm test"
+    "verify": "node --check server.js && node --check lib/quick-add.js && node --check public/ocr.js && node --check public/app.js && npm test"
   }
 }

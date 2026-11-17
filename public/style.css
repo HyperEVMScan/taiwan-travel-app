@@ -43,3 +43,20 @@
 .map-panel:has(.maptoolkit-logo:not([hidden])) .map-source{left:143px;bottom:13px;font-size:9px}
 .map-panel .leaflet-control-attribution{background:rgba(255,255,255,.92)!important;padding:2px 6px!important;max-width:55vw;white-space:normal;text-align:right}
 @media(max-width:850px){.maptoolkit-logo{left:8px;bottom:7px}.map-panel:has(.maptoolkit-logo:not([hidden])) .map-source{display:none}.map-panel .leaflet-control-attribution{font-size:8px!important;max-width:59vw}}
+
+/* v1.4.0: on-device screenshot OCR for iOS, Android, desktop. */
+.ocr-status-row{display:flex;align-items:center;gap:10px;justify-content:space-between;margin:9px 0 13px}
+.ocr-status{font-size:11px;color:#566b98;line-height:1.6;flex:1;overflow-wrap:anywhere}
+.ocr-retry{border:1px solid #d2dcfc;background:#f7f9ff;color:#4968d5;border-radius:9px;padding:8px 10px;white-space:nowrap;font-size:11px;font-weight:800}
+.ocr-retry:disabled{opacity:.45;cursor:not-allowed}
+.ocr-result-panel{padding:12px;background:#f5f8ff;border:1px solid #dfe8ff;border-radius:13px;margin:10px 0 16px}
+.ocr-result-panel .form-field{margin-bottom:8px}
+.ocr-result-panel textarea{font-size:12px;line-height:1.8;min-height:115px;background:#fff;width:100%}
+.ocr-hint{font-size:10px;font-weight:500;color:#8b96ab}
+.ocr-candidate-title{font-size:11px;font-weight:800;color:#56677e;margin:10px 0 7px}
+.ocr-name-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;color:#8a94a6;font-size:11px}
+.ocr-name-choice{background:#fff;border:1px solid #c6d5fb;color:#4866ca;border-radius:18px;padding:7px 9px;font-size:11px;font-weight:700;line-height:1.4;max-width:100%;overflow-wrap:anywhere;text-align:left}
+.ocr-name-choice.selected,.ocr-name-choice:hover{border-color:#526bf5;background:#e6ebff}
+.ocr-save-note{display:flex;align-items:center;gap:7px;font-size:11px;color:#60718e;line-height:1.5}
+.ocr-save-note input{accent-color:#536bf5;width:15px;height:15px;flex-shrink:0}
+@media(max-width:460px){.ocr-status-row{align-items:flex-start}.ocr-retry{font-size:10px}}
