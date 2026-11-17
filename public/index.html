@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f8fafc" />
+  <meta name="description" content="친구와 함께 만드는 날짜별 여행 동선 지도, 모아트립" />
+  <title>모아트립 — 우리의 여행을 한눈에</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" title="모아트립"><span class="brand-icon"><svg viewBox="0 0 40 40" width="34" height="34" fill="none" aria-hidden="true"><path d="M20 4.5c-7.7 0-13.8 6.1-13.8 13.8C6.2 28.3 20 36 20 36s13.8-7.7 13.8-17.7C33.8 10.6 27.7 4.5 20 4.5Z" fill="white"/><path d="m13.2 20.8 5.2 4.1 8.7-9.5" stroke="#4f6cf6" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>moa<span class="brand-accent">trip</span><small>여행의 모든 순간을 모아</small></span></div>
+      <div class="topbar-center"><button id="tripSwitcher" class="trip-switcher" type="button"><span id="topTripName">나의 여행</span><span data-icon="chevron-down"></span></button></div>
+      <div class="top-actions"><span class="online-pill" id="connectionStatus"><span class="dot"></span><span class="online-text">연결 중</span></span><button id="exportBtn" class="icon-btn optional-btn" aria-label="여행 내보내기" title="여행 내보내기"><span data-icon="download"></span></button><button id="settingsBtn" class="icon-btn" aria-label="설정" title="설정"><span data-icon="settings"></span></button><button id="shareBtn" class="share-btn"><span data-icon="share"></span><span>함께 계획하기</span></button></div>
+    </header>
+
+    <div class="mobile-switch" id="mobileSwitch"><button type="button" data-mobile="list" class="selected"><span data-icon="list"></span>일정 보기</button><button type="button" data-mobile="map"><span data-icon="map"></span>지도 보기</button></div>
+
+    <main class="workspace" id="workspace">
+      <section class="planner-panel" aria-label="날짜별 여행 일정">
+        <div class="planner-content">
+          <div class="trip-heading"><div class="eyebrow"><span data-icon="sparkles"></span> MY TRAVEL PLANNER</div><div class="trip-heading-title"><h1 id="tripTitle">우리의 여행을 계획해요</h1><button id="editTripBtn" class="heading-edit" type="button" aria-label="여행 정보 수정"><span data-icon="pencil"></span></button></div><div class="trip-meta" id="tripMeta"><span data-icon="map-pin"></span> 여행지를 선택해주세요</div></div>
+          <div class="day-tabs-wrap"><div class="day-tabs" id="dayTabs" role="tablist" aria-label="여행 날짜"></div></div>
+          <div class="day-heading"><div><div class="day-overline" id="dayOverline">DAY 01 · PLAN YOUR DAY</div><h2 id="dayHeading">오늘은 어디로 갈까요?</h2><p class="day-subtitle" id="daySubtitle">장소를 추가하면 동선이 지도에 표시돼요.</p></div><div class="day-count" id="dayCountBadge">0 places</div></div>
+          <div class="itinerary-container" id="itinerary"></div>
+          <div class="add-bottom"><button type="button" class="add-place-btn" id="addPlaceBtn"><span data-icon="plus"></span> 장소 추가하기 <span class="add-shortcut">＋</span></button><p class="saving-info"><span data-icon="cloud"></span> 모든 변경 내용은 자동 저장돼요</p></div>
+        </div>
+      </section>
+
+      <section class="map-panel" aria-label="여행 동선 지도">
+        <div id="map" role="application" aria-label="여행 동선 지도"></div>
+        <div class="map-top-bar"><div class="map-floating-tag"><span class="map-tag-icon" data-icon="layers"></span><div><strong id="mapTagTitle">우리의 여행 지도</strong><small id="mapTagSub">날짜별 장소를 한눈에</small></div></div><div class="map-controls"><button id="fitMapBtn" class="map-circle-btn" aria-label="모든 장소 보기" title="모든 장소 보기"><span data-icon="maximize"></span></button><button id="pickMapBtn" class="map-circle-btn" aria-label="지도에서 장소 선택" title="지도 클릭으로 장소 추가"><span data-icon="crosshair"></span></button></div></div>
+        <nav id="mobileMapDays" class="mobile-map-days" aria-label="지도 날짜 선택"></nav>
+        <div id="mapPickBanner" class="pick-banner hidden"><span data-icon="crosshair"></span> 지도에서 추가할 위치를 선택하세요 <button type="button" id="cancelPickBtn">취소</button></div>
+        <div class="map-empty-hint" id="mapEmptyHint"><span class="empty-map-icon" data-icon="map-pin"></span><strong>지도를 따라 여행을 그려보세요</strong><span>왼쪽에서 장소를 추가해보세요!</span></div>
+        <div class="map-bottom-controls"><div class="map-legend"><span class="legend-line"></span><span>방문 순서 (직선 연결)</span></div><div class="map-bottom-actions"><select aria-label="이동 수단" id="routeMode"><option value="driving">🚗 자동차</option><option value="walking">🚶 도보</option><option value="transit">🚇 대중교통</option></select><button id="directionsBtn" class="direction-btn"><span data-icon="navigation"></span> 구글 지도 길찾기 <span data-icon="external-link"></span></button></div></div>
+        <div class="map-source" id="mapSource">지도: OpenStreetMap</div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop" aria-hidden="true"><div class="dialog" id="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button type="button" class="modal-close" id="closeModalBtn" aria-label="닫기"><span data-icon="x"></span></button><div id="dialogContent"></div></div></div>
+  <div class="toast-wrap" id="toastWrap" aria-live="polite"></div>
+  <input type="file" id="importFile" accept=".json,application/json" hidden />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
